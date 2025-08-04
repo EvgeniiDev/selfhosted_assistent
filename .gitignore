@@ -218,4 +218,4 @@ models/
 
 # Local configuration
 .env.local
-.env.example
+main.env
