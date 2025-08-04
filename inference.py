@@ -25,7 +25,8 @@ class CalendarInference:
         self.model = Llama(
             model_path=model_path,
             n_ctx=n_ctx,
-            verbose=False,
+            n_parts=1,
+            verbose=True,
         )
 
     def process_request(self, user_message: str) -> Optional[Dict[str, Any]]:

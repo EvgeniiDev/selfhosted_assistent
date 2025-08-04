@@ -23,6 +23,34 @@
 
 ### 1. Установка зависимостей
 
+#### Windows
+
+Для сборки llama-cpp-python из исходников на Windows требуется установка w64devkit:
+
+1. Скачайте w64devkit с [GitHub релизов](https://github.com/skeeto/w64devkit/releases)
+2. Распакуйте в `C:\w64devkit\`
+3. Настройте переменные окружения CMAKE:
+
+```powershell
+$env:CMAKE_GENERATOR = "MinGW Makefiles"
+$env:CMAKE_ARGS = "-DGGML_OPENBLAS=on -DCMAKE_C_COMPILER=C:/w64devkit/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/w64devkit/bin/g++.exe -DCMAKE_MAKE_PROGRAM=C:/w64devkit/bin/mingw32-make.exe"
+$env:PATH = "C:\w64devkit\bin;" + $env:PATH
+```
+
+4. Установите зависимости:
+
+```powershell
+pip install -r requirements.txt
+```
+
+**Поддержка Vulkan (опционально):**
+```powershell
+$env:CMAKE_ARGS = "-DGGML_VULKAN=on -DCMAKE_C_COMPILER=C:/w64devkit/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/w64devkit/bin/g++.exe -DCMAKE_MAKE_PROGRAM=C:/w64devkit/bin/mingw32-make.exe"
+pip install llama-cpp-python
+```
+
+#### Linux/macOS
+
 ```bash
 pip install -r requirements.txt
 ```
