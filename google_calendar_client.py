@@ -5,6 +5,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from logger import calendar_logger
 
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -88,20 +89,35 @@ class GoogleCalendarClient:
     def create_event(self, event_data: Dict[str, Any], calendar_id: str = 'primary') -> Optional[Dict[str, Any]]:
         """Создает событие в календаре"""
         try:
+            # Логируем запрос к Google Calendar
+            calendar_logger.log_calendar_request(event_data)
+            
             event = self.service.events().insert(
                 calendarId=calendar_id,
                 body=event_data
             ).execute()
 
-            return {
+            result = {
                 'success': True,
                 'event_id': event.get('id'),
                 'event_link': event.get('htmlLink'),
                 'message': f"Событие '{event_data.get('summary')}' создано успешно"
             }
+            
+            # Логируем успешный ответ от Google Calendar
+            calendar_logger.log_calendar_response(True, result)
+            
+            return result
+            
         except Exception as e:
-            return {
+            result = {
                 'success': False,
                 'error': str(e),
                 'message': f"Ошибка при создании события: {str(e)}"
             }
+            
+            # Логируем ошибку от Google Calendar
+            calendar_logger.log_calendar_response(False, result)
+            calendar_logger.log_error(e, "google_calendar_client.create_event")
+            
+            return result
