@@ -1,6 +1,5 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
-from dateutil.parser import parse as parse_date
 
 from inference import CalendarInference
 from google_calendar_client import GoogleCalendarClient
@@ -16,22 +15,13 @@ class CalendarService:
     def process_user_request(self, user_message: str) -> Dict[str, Any]:
         """Обрабатывает запрос пользователя и создает событие в календаре"""
         try:
-            # Получаем JSON от модели
-            event_data = self.inference.process_request(user_message)
-
-            if not event_data:
-                return {
-                    'success': False,
-                    'message': 'Не удалось понять запрос. Попробуйте переформулировать.'
-                }
-
-            # Валидируем и преобразуем данные
-            calendar_event = self._create_calendar_event(event_data)
+            # Получаем CalendarEvent от модели
+            calendar_event = self.inference.process_request(user_message)
 
             if not calendar_event:
                 return {
                     'success': False,
-                    'message': 'Ошибка в данных события. Проверьте время и дату.'
+                    'message': 'Не удалось понять запрос. Попробуйте переформулировать.'
                 }
 
             # Возвращаем данные для подтверждения вместо создания события
@@ -107,38 +97,3 @@ class CalendarService:
         message += "\n\n✅ Подтвердить создание события?"
 
         return message
-
-    def _create_calendar_event(self, event_data: Dict[str, Any]) -> Optional[CalendarEvent]:
-        """Создает объект CalendarEvent из данных модели"""
-        try:
-            # Обязательные поля
-            title = event_data.get('title')
-            start_time_str = event_data.get('start_time')
-
-            if not title or not start_time_str:
-                return None
-
-            start_time = parse_date(start_time_str)
-
-            # Опциональные поля
-            description = event_data.get('description')
-            end_time = None
-            duration_minutes = event_data.get('duration_minutes')
-
-            if event_data.get('end_time'):
-                end_time = parse_date(event_data['end_time'])
-
-            recurrence = event_data.get('recurrence')
-
-            return CalendarEvent(
-                title=title,
-                description=description,
-                start_time=start_time,
-                end_time=end_time,
-                duration_minutes=duration_minutes,
-                recurrence=recurrence
-            )
-
-        except Exception:
-            calendar_logger.log_error(Exception("Failed to create CalendarEvent"), "calendar_service._create_calendar_event")
-            return None
