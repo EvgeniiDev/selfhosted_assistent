@@ -28,35 +28,17 @@ class TelegramBot:
         if not url:
             return ""
         
-        try:
-            # Проверяем, что URL корректный
-            parsed = urllib.parse.urlparse(url)
-            if not parsed.scheme or not parsed.netloc:
-                return ""
-            
-            # Кодируем только компоненты, которые могут содержать проблемные символы
-            encoded_url = urllib.parse.urlunparse((
-                parsed.scheme,
-                parsed.netloc,
-                urllib.parse.quote(parsed.path, safe='/'),
-                urllib.parse.quote(parsed.params, safe='=&'),
-                urllib.parse.quote(parsed.query, safe='=&'),
-                urllib.parse.quote(parsed.fragment, safe='')
-            ))
-            
-            return encoded_url
-        except Exception:
-            return ""
+        # Для Telegram лучше использовать HTML формат ссылок
+        # или просто возвращать URL как есть для HTML parse_mode
+        return url
 
     def _setup_handlers(self):
         """Настройка обработчиков команд и сообщений"""
         self.application.add_handler(
             CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND, self.handle_message))
-        self.application.add_handler(MessageHandler(
-            filters.VOICE, self.handle_voice_message))  # Обработчик голосовых сообщений
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.application.add_handler(MessageHandler(filters.VOICE, self.handle_voice_message))  # Обработчик голосовых сообщений
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -177,15 +159,13 @@ class TelegramBot:
             elif result.get('success'):
                 response = f"✅ {result['message']}"
                 if result.get('event_link'):
-                    safe_url = self._safe_url_encode(result['event_link'])
-                    if safe_url:
-                        response += f"\n\n🔗 [Ссылка на событие]({safe_url})"
+                    response += f"\n\n🔗 <a href=\"{result['event_link']}\">Ссылка на событие</a>"
                 
-                # Сразу отправляем финальное сообщение в Markdown
+                # Используем HTML parse_mode для корректной обработки ссылок
                 if processing_message:
-                    await processing_message.edit_text(response, parse_mode='Markdown', disable_web_page_preview=True)
+                    await processing_message.edit_text(response, parse_mode='HTML', disable_web_page_preview=True)
                 else:
-                    await update.message.reply_text(response, parse_mode='Markdown', disable_web_page_preview=True)
+                    await update.message.reply_text(response, parse_mode='HTML', disable_web_page_preview=True)
             else:
                 response = f"❌ {result['message']}"
                 if processing_message:
@@ -248,14 +228,12 @@ class TelegramBot:
             if result.get('success'):
                 response = f"✅ {result['message']}"
                 if result.get('event_link'):
-                    safe_url = self._safe_url_encode(result['event_link'])
-                    if safe_url:
-                        response += f"\n\n🔗 [Ссылка на событие]({safe_url})"
+                    response += f"\n\n🔗 <a href=\"{result['event_link']}\">Ссылка на событие</a>"
             else:
                 response = f"❌ {result['message']}"
-            
-            # Сразу отправляем финальное сообщение в Markdown
-            await query.edit_message_text(response, parse_mode='Markdown', disable_web_page_preview=True)
+
+            # Используем HTML parse_mode для корректной обработки ссылок
+            await query.edit_message_text(response, parse_mode='HTML', disable_web_page_preview=True)
             
             # Удаляем событие из ожидающих
             del self.pending_events[event_id]
@@ -314,3 +292,4 @@ class TelegramBot:
             print("⚠️  Модель распознавания речи не загружена. Голосовые сообщения не будут обрабатываться.")
         
         self.application.run_polling()
+

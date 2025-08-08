@@ -1,12 +1,8 @@
 import io
 import torch
-import tempfile
 import os
 from typing import Union, Optional
 from telegram import File
-
-# Применяем патч для PyTorch перед импортом gigaam
-from pytorch_patch import *
 
 # Импортируем GigaAM из локальной папки
 import sys
@@ -36,11 +32,9 @@ class VoiceService:
     def _load_model(self):
         """Загружает модель GigaAM для распознавания речи"""
         try:
-            torch.serialization.safe_globals([omegaconf.base.ContainerMetadata])
-            torch.serialization.add_safe_globals([omegaconf.base.ContainerMetadata])
             calendar_logger.info("Загрузка модели GigaAM...")
             self.model = gigaam.load_model(
-                "v1_ctc",  # GigaAM-V1 CTC model
+                "v2_ctc",  # GigaAM-V2 CTC model
                 device=self.device
             )
             calendar_logger.info("Модель GigaAM успешно загружена")
@@ -89,40 +83,31 @@ class VoiceService:
         import torchaudio
         
         try:
-            # Создаем временный файл для OGG
-            with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as temp_ogg:
-                temp_ogg.write(ogg_bytes)
-                temp_ogg_path = temp_ogg.name
+            # Создаем BytesIO объект из байтов
+            audio_buffer = io.BytesIO(ogg_bytes)
             
-            try:
-                # Загружаем аудио файл с помощью torchaudio
-                waveform, sample_rate = torchaudio.load(temp_ogg_path)
+            # Загружаем аудио файл напрямую из памяти
+            waveform, sample_rate = torchaudio.load(audio_buffer)
+            
+            # Преобразуем в моно если нужно
+            if waveform.shape[0] > 1:
+                waveform = torch.mean(waveform, dim=0, keepdim=True)
+            
+            # Убираем лишнюю размерность
+            waveform = waveform.squeeze(0)
+            
+            # Ресемплируем до 16kHz для модели
+            if sample_rate != 16000:
+                resampler = torchaudio.transforms.Resample(sample_rate, 16000)
+                waveform = resampler(waveform)
+            
+            calendar_logger.info(f"Аудио конвертировано: sample_rate={sample_rate}, shape={waveform.shape}")
+            return waveform
                 
-                # Преобразуем в моно если нужно
-                if waveform.shape[0] > 1:
-                    waveform = torch.mean(waveform, dim=0, keepdim=True)
-                
-                # Убираем лишнюю размерность
-                waveform = waveform.squeeze(0)
-                
-                # Ресемплируем до 16kHz для модели
-                if sample_rate != 16000:
-                    resampler = torchaudio.transforms.Resample(sample_rate, 16000)
-                    waveform = resampler(waveform)
-                
-                calendar_logger.info(f"Аудио конвертировано: sample_rate={sample_rate}, shape={waveform.shape}")
-                return waveform
-                
-            finally:
-                # Удаляем временный файл
-                try:
-                    os.unlink(temp_ogg_path)
-                except OSError:
-                    pass
-                    
         except Exception as e:
             calendar_logger.log_error(e, "voice_service._convert_ogg_to_wav")
             raise
+
     
     def is_model_loaded(self) -> bool:
         """Проверяет, загружена ли модель"""
