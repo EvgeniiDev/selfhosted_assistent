@@ -1,6 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-import json
 
 try:
     from dotenv import load_dotenv
@@ -9,14 +8,13 @@ except ImportError:
     pass
 
 from calendar_service import CalendarService
-from models import CalendarEvent
 from logger import calendar_logger
 
 
 class TelegramBot:
-    def __init__(self, token: str, model_path: str, credentials_path: str = "credentials.json"):
+    def __init__(self, token: str, credentials_path: str = "credentials.json"):
         self.token = token
-        self.calendar_service = CalendarService(model_path, credentials_path)
+        self.calendar_service = CalendarService(credentials_path)
         self.application = Application.builder().token(token).build()
         # Хранилище для ожидающих подтверждения событий
         self.pending_events = {}

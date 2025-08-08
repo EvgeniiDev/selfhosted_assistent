@@ -1,20 +1,20 @@
 # Google Calendar Assistant
 
-Ассистент для создания задач и встреч в Google Calendar через Telegram бота с использованием локальной языковой модели.
+Ассистент для создания задач и встреч в Google Calendar через Telegram бота с использованием LM Studio API для локального инференса.
 
 ## Функциональность
 
-- Обработка естественного языка для создания событий в календаре
+- Обработка естественного языка для создания событий в календаре через **LM Studio API**
 - **Предварительный просмотр и подтверждение событий перед созданием**
 - Поддержка указания времени начала, окончания или длительности
 - Создание повторяющихся событий
 - Интеграция с Telegram для удобного взаимодействия
-- Использование локальной модели IlyaGusev/saiga_gemma3_12b_gguf
+- Использование OpenAI-совместимого API LM Studio (http://127.0.0.1:1234)
 - **Полное логирование всех операций в файл**
 
 ## Модули
 
-1. **inference.py** - Модуль инференса с системным промптом для обработки запросов пользователя
+1. **inference.py** - Модуль инференса с системным промптом, использующий LM Studio API
 2. **google_calendar_client.py** - Клиент для работы с Google Calendar API
 3. **calendar_service.py** - Сервис, соединяющий инференс и календарь клиент
 4. **telegram_bot.py** - Telegram бот для взаимодействия с пользователем
@@ -24,41 +24,23 @@
 
 ## Установка и настройка
 
-### 1. Установка зависимостей
+### 1. Установка LM Studio
 
-#### Windows
+1. Скачайте и установите [LM Studio](https://lmstudio.ai/)
+2. Загрузите подходящую модель (например, Qwen или LLama)
+3. Запустите локальный сервер в LM Studio:
+   - Откройте вкладку "Local Server"
+   - Выберите модель
+   - Нажмите "Start Server"
+   - Убедитесь, что сервер работает на `http://127.0.0.1:1234`
 
-Для сборки llama-cpp-python из исходников на Windows требуется установка w64devkit:
-
-1. Скачайте w64devkit с [GitHub релизов](https://github.com/skeeto/w64devkit/releases)
-2. Распакуйте в `C:\w64devkit\`
-3. Настройте переменные окружения CMAKE:
-
-```powershell
-$env:CMAKE_GENERATOR = "MinGW Makefiles"
-$env:CMAKE_ARGS = "-DGGML_OPENBLAS=on -DCMAKE_C_COMPILER=C:/w64devkit/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/w64devkit/bin/g++.exe -DCMAKE_MAKE_PROGRAM=C:/w64devkit/bin/mingw32-make.exe"
-$env:PATH = "C:\w64devkit\bin;" + $env:PATH
-```
-
-4. Установите зависимости:
-
-```powershell
-pip install -r requirements.txt
-```
-
-**Поддержка Vulkan (опционально):**
-```powershell
-$env:CMAKE_ARGS = "-DGGML_VULKAN=on -DCMAKE_C_COMPILER=C:/w64devkit/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/w64devkit/bin/g++.exe -DCMAKE_MAKE_PROGRAM=C:/w64devkit/bin/mingw32-make.exe"
-pip install llama-cpp-python
-```
-
-#### Linux/macOS
+### 2. Установка зависимостей Python
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Настройка Google Calendar API
+### 3. Настройка Google Calendar API
 
 1. Перейдите в [Google Cloud Console](https://console.cloud.google.com/)
 2. Создайте новый проект или выберите существующий
@@ -66,35 +48,31 @@ pip install -r requirements.txt
 4. Создайте учетные данные (OAuth 2.0 Client ID)
 5. Скачайте файл `credentials.json` и поместите в корень проекта
 
-### 3. Настройка Telegram бота
+### 4. Настройка Telegram бота
 
 1. Найдите @BotFather в Telegram
 2. Создайте нового бота командой `/newbot`
 3. Получите токен бота
 
-### 4. Скачивание модели
-
-Скачайте модель IlyaGusev/saiga_gemma3_12b_gguf с квантованием Q4_K_M и поместите в папку `./models/`
-
 ### 5. Настройка переменных окружения
 
-Скопируйте `.env.example` в `.env` и заполните необходимые значения:
+Скопируйте `.env.example` в `main.env` и заполните необходимые значения:
 
-```bash
-cp .env.example .env
-```
 
 ## Запуск
 
+### 1. Запустите LM Studio Server
+- Откройте LM Studio
+- Перейдите на вкладку "Local Server"
+- Выберите модель и нажмите "Start Server"
+- Убедитесь, что API доступен на http://127.0.0.1:1234
+
+### 2. Запустите Calendar Assistant
 ```bash
 python main.py
 ```
 
-Или
 
-```bash
-python telegram_bot.py
-```
 
 ## Примеры использования
 
@@ -117,7 +95,7 @@ python telegram_bot.py
 ```
 selfhosted_assistent/
 ├── main.py                    # Точка входа
-├── inference.py               # Модуль инференса
+├── inference.py               # Модуль инференса (LM Studio API)
 ├── google_calendar_client.py  # Google Calendar клиент
 ├── calendar_service.py        # Сервис календаря
 ├── telegram_bot.py           # Telegram бот
@@ -125,7 +103,7 @@ selfhosted_assistent/
 ├── utils.py                  # Утилиты
 ├── logger.py                 # Модуль логирования
 ├── requirements.txt          # Зависимости Python
-├── .env.example             # Пример настроек
+├── main.env                 # Пример настроек
 ├── README.md               # Документация
 └── credentials.json        # Учетные данные Google (не в репозитории)
 ```

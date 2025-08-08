@@ -1,22 +1,19 @@
 import json
 import time
-from typing import Dict, Any, Optional
+import requests
+from typing import Optional
 from datetime import datetime
-from llama_cpp import Llama
 from logger import calendar_logger
 from models import CalendarEvent
 
 
 SYSTEM_PROMPT = """
-# Calendar Assistant
-
 You are a calendar assistant that creates calendar events from user text input in Russian.
 
-## Task
 Extract event information from the text and return ONLY a JSON response without additional text.
 
 ## Response Format
-```json
+Return exactly this JSON structure:
 {
   "title": "string",
   "description": "string or null",
@@ -25,7 +22,6 @@ Extract event information from the text and return ONLY a JSON response without 
   "duration_minutes": "number or null",
   "recurrence": "string or null"
 }
-```
 
 ## Time Rules
 1. Assume all times are in the user's local time zone
@@ -49,20 +45,37 @@ Possible values:
 
 ## Examples
 - Input: "Встреча каждый понедельник в 14:00"
-  Output: `{"title": "Встреча", "description": null, "start_time": "2025-08-11T14:00:00", "end_time": null, "duration_minutes": 60, "recurrence": "Weekly on Monday"}`
+  Output: {"title": "Встреча", "description": null, "start_time": "2025-08-11T14:00:00", "end_time": null, "duration_minutes": 60, "recurrence": "Weekly on Monday"}
 
 - Input: "Совещание завтра с 10 до 11"
-  Output: `{"title": "Совещание", "description": null, "start_time": "2025-08-07T10:00:00", "end_time": "2025-08-07T11:00:00", "duration_minutes": null, "recurrence": null}`
+  Output: {"title": "Совещание", "description": null, "start_time": "2025-08-09T10:00:00", "end_time": "2025-08-09T11:00:00", "duration_minutes": null, "recurrence": null}
 """
 
 class CalendarInference:
-    def __init__(self, model_path: str, n_ctx: int = 8192):
-        self.model = Llama(
-            model_path=model_path,
-            n_ctx=n_ctx,
-            n_parts=1,
-            verbose=False,
-        )
+    def __init__(self):
+        """
+        Инициализация клиента для LM Studio API
+        
+        Args:
+            api_url: URL API LM Studio (опциональный, по умолчанию http://127.0.0.1:1234)
+        """
+        # Захардкоженный адрес LM Studio API
+        self.api_url = "http://127.0.0.1:1234"
+        
+        self.chat_url = f"{self.api_url}/v1/chat/completions"
+        
+        calendar_logger.info(f'Initializing LM Studio API client with URL: {self.api_url}')
+        
+        # Проверяем доступность API
+        try:
+            response = requests.get(f"{self.api_url}/v1/models", timeout=5)
+            if response.status_code == 200:
+                models = response.json()
+                calendar_logger.info(f"LM Studio API is available. Available models: {models}")
+            else:
+                calendar_logger.warning(f"LM Studio API responded with status {response.status_code}")
+        except Exception as e:
+            calendar_logger.log_error(e, "CalendarInference.__init__ - API availability check")
 
     def process_request(self, user_message: str) -> Optional[CalendarEvent]:
         """Обрабатывает запрос пользователя и возвращает объект CalendarEvent"""
@@ -76,34 +89,56 @@ class CalendarInference:
         - User query: {user_message}
         """
         
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": enhanced_message}
-        ]
-
         # Логируем промт, отправляемый в LLM
         calendar_logger.log_llm_prompt(enhanced_message, SYSTEM_PROMPT)
 
         # Засекаем время начала обработки
         start_time = time.time()
 
-        response = self.model.create_chat_completion(
-            messages,
-            temperature=0.6,
-            top_k=20,
-            top_p=0.8,
-            max_tokens=512,
-            stop=["User:", "\n\n"]
-        )
-
-        # Вычисляем время обработки
-        processing_time = time.time() - start_time
-        calendar_logger.info(f"LLM processing time: {processing_time:.2f} seconds")
-
-        content = response["choices"][0]["message"]["content"].strip()
-
+        # Подготавливаем запрос для OpenAI-совместимого API (базовый режим)
+        request_data = {
+            "model": "local-model",  # LM Studio игнорирует это поле, но оно требуется
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": enhanced_message}
+            ],
+            "temperature": 0.3,
+            "top_p": 0.9,
+            "max_tokens": 512,
+            "stream": False
+        }
+        
         try:
-            # Извлекаем JSON из ответа
+            # Отправляем запрос к LM Studio API
+            response = requests.post(
+                self.chat_url,
+                json=request_data,
+                headers={"Content-Type": "application/json"},
+                timeout=60
+            )
+            
+            processing_time = time.time() - start_time
+            calendar_logger.info(f"LM Studio API processing time: {processing_time:.2f} seconds")
+            
+            if response.status_code != 200:
+                calendar_logger.log_error(
+                    Exception(f"API request failed with status {response.status_code}: {response.text}"),
+                    "inference.process_request - API request"
+                )
+                return None
+                
+            response_json = response.json()
+            
+            # Извлекаем содержимое ответа
+            if "choices" not in response_json or len(response_json["choices"]) == 0:
+                calendar_logger.log_error(
+                    Exception(f"Invalid API response format: {response_json}"),
+                    "inference.process_request - API response format"
+                )
+                return None
+                
+            content = response_json["choices"][0]["message"]["content"].strip()
+            
             json_start = content.find('{')
             json_end = content.rfind('}') + 1
             if json_start >= 0 and json_end > json_start:
@@ -115,12 +150,19 @@ class CalendarInference:
                 
                 # Создаем объект CalendarEvent из parsed_data
                 return CalendarEvent(**parsed_data)
-        except (json.JSONDecodeError, ValueError) as e:
-            # Логируем ошибку парсинга
-            calendar_logger.log_llm_response(content, None)
+            else:
+                calendar_logger.log_error(
+                    Exception(f"No JSON found in response: {content}"),
+                    "inference.process_request - JSON extraction"
+                )
+                return None
+                
+        except requests.exceptions.RequestException as e:
+            calendar_logger.log_error(e, "inference.process_request - API request exception")
+        except json.JSONDecodeError as e:
+            calendar_logger.log_llm_response(content if 'content' in locals() else "No content", None)
             calendar_logger.log_error(e, "inference.process_request - JSON parsing")
         except Exception as e:
-            # Логируем ошибку создания модели
-            calendar_logger.log_error(e, "inference.process_request - CalendarEvent creation")
+            calendar_logger.log_error(e, "inference.process_request - General exception")
 
         return None

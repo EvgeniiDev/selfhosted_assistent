@@ -112,10 +112,6 @@ class CalendarLogger:
         """Общее логирование информационных сообщений"""
         self.logger.info(message)
     
-    def debug(self, message: str):
-        """Логирование отладочных сообщений"""
-        self.logger.debug(message)
-    
     def warning(self, message: str):
         """Логирование предупреждений"""
         self.logger.warning(message)

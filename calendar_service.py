@@ -8,8 +8,8 @@ from logger import calendar_logger
 
 
 class CalendarService:
-    def __init__(self, model_path: str, credentials_path: str = "credentials.json"):
-        self.inference = CalendarInference(model_path)
+    def __init__(self, credentials_path: str = "credentials.json"):
+        self.inference = CalendarInference()
         self.calendar_client = GoogleCalendarClient(credentials_path)
 
     def process_user_request(self, user_message: str) -> Dict[str, Any]:
