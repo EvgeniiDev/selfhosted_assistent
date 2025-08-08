@@ -1,5 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+import urllib.parse
 
 try:
     from dotenv import load_dotenv
@@ -21,6 +22,31 @@ class TelegramBot:
         # Хранилище для ожидающих подтверждения событий
         self.pending_events = {}
         self._setup_handlers()
+
+    def _safe_url_encode(self, url: str) -> str:
+        """Безопасное кодирование URL для Telegram"""
+        if not url:
+            return ""
+        
+        try:
+            # Проверяем, что URL корректный
+            parsed = urllib.parse.urlparse(url)
+            if not parsed.scheme or not parsed.netloc:
+                return ""
+            
+            # Кодируем только компоненты, которые могут содержать проблемные символы
+            encoded_url = urllib.parse.urlunparse((
+                parsed.scheme,
+                parsed.netloc,
+                urllib.parse.quote(parsed.path, safe='/'),
+                urllib.parse.quote(parsed.params, safe='=&'),
+                urllib.parse.quote(parsed.query, safe='=&'),
+                urllib.parse.quote(parsed.fragment, safe='')
+            ))
+            
+            return encoded_url
+        except Exception:
+            return ""
 
     def _setup_handlers(self):
         """Настройка обработчиков команд и сообщений"""
@@ -114,7 +140,7 @@ class TelegramBot:
             error_message = f"❌ Произошла ошибка при обработке голосового сообщения: {str(e)}"
             await processing_message.edit_text(error_message)
 
-    async def _process_text_request(self, update: Update, user_message: str, message_to_edit=None):
+    async def _process_text_request(self, update: Update, user_message: str, processing_message=None):
         """Общий метод для обработки текстовых запросов"""
         user_id = str(update.effective_user.id) if update.effective_user else None
 
@@ -143,32 +169,35 @@ class TelegramBot:
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                if message_to_edit:
-                    await message_to_edit.edit_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+                if processing_message:
+                    await processing_message.edit_text(message, reply_markup=reply_markup, parse_mode='Markdown')
                 else:
                     await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
                 
             elif result.get('success'):
                 response = f"✅ {result['message']}"
                 if result.get('event_link'):
-                    response += f"\n\n🔗 [Ссылка на событие]({result['event_link']})"
+                    safe_url = self._safe_url_encode(result['event_link'])
+                    if safe_url:
+                        response += f"\n\n🔗 [Ссылка на событие]({safe_url})"
                 
-                if message_to_edit:
-                    await message_to_edit.edit_text(response, parse_mode='Markdown')
+                # Сразу отправляем финальное сообщение в Markdown
+                if processing_message:
+                    await processing_message.edit_text(response, parse_mode='Markdown', disable_web_page_preview=True)
                 else:
-                    await update.message.reply_text(response, parse_mode='Markdown')
+                    await update.message.reply_text(response, parse_mode='Markdown', disable_web_page_preview=True)
             else:
                 response = f"❌ {result['message']}"
-                if message_to_edit:
-                    await message_to_edit.edit_text(response)
+                if processing_message:
+                    await processing_message.edit_text(response)
                 else:
                     await update.message.reply_text(response)
 
         except Exception as e:
             calendar_logger.log_error(e, "telegram_bot._process_text_request")
             error_message = f"❌ Произошла ошибка: {str(e)}"
-            if message_to_edit:
-                await message_to_edit.edit_text(error_message)
+            if processing_message:
+                await processing_message.edit_text(error_message)
             else:
                 await update.message.reply_text(error_message)
 
@@ -219,11 +248,14 @@ class TelegramBot:
             if result.get('success'):
                 response = f"✅ {result['message']}"
                 if result.get('event_link'):
-                    response += f"\n\n🔗 [Ссылка на событие]({result['event_link']})"
+                    safe_url = self._safe_url_encode(result['event_link'])
+                    if safe_url:
+                        response += f"\n\n🔗 [Ссылка на событие]({safe_url})"
             else:
                 response = f"❌ {result['message']}"
             
-            await query.edit_message_text(response, parse_mode='Markdown')
+            # Сразу отправляем финальное сообщение в Markdown
+            await query.edit_message_text(response, parse_mode='Markdown', disable_web_page_preview=True)
             
             # Удаляем событие из ожидающих
             del self.pending_events[event_id]
