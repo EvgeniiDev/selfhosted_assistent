@@ -102,9 +102,6 @@ class CalendarInference:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": enhanced_message}
             ],
-            "temperature": 0.3,
-            "top_p": 0.9,
-            "max_tokens": 512,
             "stream": False
         }
         
@@ -147,6 +144,10 @@ class CalendarInference:
                 
                 # Логируем ответ от LLM
                 calendar_logger.log_llm_response(content, parsed_data)
+                
+                # Добавляем время обработки в название встречи для отладки
+                if "title" in parsed_data:
+                    parsed_data["title"] = f"{parsed_data['title']} [⏱{processing_time:.2f}s]"
                 
                 # Создаем объект CalendarEvent из parsed_data
                 return CalendarEvent(**parsed_data)

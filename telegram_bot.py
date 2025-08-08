@@ -8,6 +8,7 @@ except ImportError:
     pass
 
 from calendar_service import CalendarService
+from voice_service import VoiceService
 from logger import calendar_logger
 
 
@@ -15,6 +16,7 @@ class TelegramBot:
     def __init__(self, token: str, credentials_path: str = "credentials.json"):
         self.token = token
         self.calendar_service = CalendarService(credentials_path)
+        self.voice_service = VoiceService(device="cpu")  # Используем CPU для инференса
         self.application = Application.builder().token(token).build()
         # Хранилище для ожидающих подтверждения событий
         self.pending_events = {}
@@ -27,13 +29,18 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.application.add_handler(MessageHandler(
+            filters.VOICE, self.handle_voice_message))  # Обработчик голосовых сообщений
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
         welcome_message = (
             "Привет! Я ассистент для создания событий в Google Calendar.\n\n"
-            "Просто напишите мне что-то вроде:\n"
+            "Вы можете:\n"
+            "📝 Написать текстовое сообщение\n"
+            "🎤 Записать голосовое сообщение\n\n"
+            "Примеры запросов:\n"
             "• 'Встреча с командой завтра в 14:00 на час'\n"
             "• 'Обед каждый день в 13:00 на 30 минут'\n"
             "• 'Планерка в понедельник в 10:00'\n\n"
@@ -46,7 +53,8 @@ class TelegramBot:
         """Обработчик команды /help"""
         help_message = (
             "Как использовать бота:\n\n"
-            "1️⃣ Отправьте мне описание события для календаря\n"
+            "1️⃣ Отправьте мне описание события для календаря:\n"
+            "   📝 Текстовое сообщение или 🎤 Голосовое сообщение\n"
             "2️⃣ Проверьте детали события в предварительном просмотре\n"
             "3️⃣ Нажмите \"✅ Подтвердить\" для создания или \"❌ Отменить\"\n"
             "4️⃣ Если что-то не так, нажмите \"✏️ Редактировать\"\n\n"
@@ -59,21 +67,56 @@ class TelegramBot:
             "Примеры:\n"
             "• 'Встреча с клиентом завтра в 15:00 длительностью 2 часа'\n"
             "• 'Спортзал каждый понедельник в 19:00'\n"
-            "• 'Обед сегодня в 13:00-14:00'\n"
+            "• 'Обед сегодня в 13:00-14:00'\n\n"
+            "🎤 Голосовые сообщения автоматически распознаются и обрабатываются как текст."
         )
         await update.message.reply_text(help_message)
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик текстовых сообщений"""
-        user_message = update.message.text
+    async def handle_voice_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик голосовых сообщений"""
         user_id = str(update.effective_user.id) if update.effective_user else None
         username = update.effective_user.username if update.effective_user else None
 
-        # Логируем запрос пользователя
-        calendar_logger.log_user_request(user_id, username, user_message)
+        # Показываем, что бот обрабатывает голосовое сообщение
+        processing_message = await update.message.reply_text("🎤 Обрабатываю голосовое сообщение...")
 
-        # Показываем, что бот обрабатывает запрос
-        await update.message.reply_text("Обрабатываю ваш запрос...")
+        try:
+            # Проверяем, загружена ли модель
+            if not self.voice_service.is_model_loaded():
+                await processing_message.edit_text("❌ Модель распознавания речи не загружена")
+                return
+
+            # Получаем голосовое сообщение
+            voice = update.message.voice
+            voice_file = await context.bot.get_file(voice.file_id)
+
+            # Обновляем статус
+            await processing_message.edit_text("🎤 Распознаю речь...")
+
+            # Транскрибируем голосовое сообщение
+            transcription = await self.voice_service.transcribe_voice_message(voice_file)
+
+            if not transcription:
+                await processing_message.edit_text("❌ Не удалось распознать речь. Попробуйте записать сообщение заново.")
+                return
+
+            # Логируем запрос пользователя
+            calendar_logger.log_user_request(user_id, username, f"[VOICE] {transcription}")
+
+            # Показываем распознанный текст пользователю
+            await processing_message.edit_text(f"🎤 Распознанный текст: *{transcription}*\n\nОбрабатываю запрос...", parse_mode='Markdown')
+
+            # Обрабатываем транскрибированный текст как обычное текстовое сообщение
+            await self._process_text_request(update, transcription, processing_message)
+
+        except Exception as e:
+            calendar_logger.log_error(e, "telegram_bot.handle_voice_message")
+            error_message = f"❌ Произошла ошибка при обработке голосового сообщения: {str(e)}"
+            await processing_message.edit_text(error_message)
+
+    async def _process_text_request(self, update: Update, user_message: str, message_to_edit=None):
+        """Общий метод для обработки текстовых запросов"""
+        user_id = str(update.effective_user.id) if update.effective_user else None
 
         try:
             # Обрабатываем запрос через календарный сервис
@@ -100,21 +143,49 @@ class TelegramBot:
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+                if message_to_edit:
+                    await message_to_edit.edit_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+                else:
+                    await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
                 
             elif result.get('success'):
                 response = f"✅ {result['message']}"
                 if result.get('event_link'):
                     response += f"\n\n🔗 [Ссылка на событие]({result['event_link']})"
-                await update.message.reply_text(response, parse_mode='Markdown')
+                
+                if message_to_edit:
+                    await message_to_edit.edit_text(response, parse_mode='Markdown')
+                else:
+                    await update.message.reply_text(response, parse_mode='Markdown')
             else:
                 response = f"❌ {result['message']}"
-                await update.message.reply_text(response)
+                if message_to_edit:
+                    await message_to_edit.edit_text(response)
+                else:
+                    await update.message.reply_text(response)
 
         except Exception as e:
-            calendar_logger.log_error(e, "telegram_bot.handle_message")
+            calendar_logger.log_error(e, "telegram_bot._process_text_request")
             error_message = f"❌ Произошла ошибка: {str(e)}"
-            await update.message.reply_text(error_message)
+            if message_to_edit:
+                await message_to_edit.edit_text(error_message)
+            else:
+                await update.message.reply_text(error_message)
+
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик текстовых сообщений"""
+        user_message = update.message.text
+        user_id = str(update.effective_user.id) if update.effective_user else None
+        username = update.effective_user.username if update.effective_user else None
+
+        # Логируем запрос пользователя
+        calendar_logger.log_user_request(user_id, username, user_message)
+
+        # Показываем, что бот обрабатывает запрос
+        processing_message = await update.message.reply_text("Обрабатываю ваш запрос...")
+
+        # Используем общий метод для обработки
+        await self._process_text_request(update, user_message, processing_message)
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик нажатий на inline кнопки"""
@@ -203,4 +274,11 @@ class TelegramBot:
     def run(self):
         """Запуск бота"""
         print("Запуск Telegram бота...")
+        
+        # Проверяем статус модели распознавания речи
+        if self.voice_service.is_model_loaded():
+            print("✅ Модель распознавания речи загружена успешно")
+        else:
+            print("⚠️  Модель распознавания речи не загружена. Голосовые сообщения не будут обрабатываться.")
+        
         self.application.run_polling()
