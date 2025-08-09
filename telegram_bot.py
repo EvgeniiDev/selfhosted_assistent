@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-import urllib.parse
+import os
 
 try:
     from dotenv import load_dotenv
@@ -21,6 +21,25 @@ class TelegramBot:
         self.application = Application.builder().token(token).build()
         # Хранилище для ожидающих подтверждения событий
         self.pending_events = {}
+        
+        # Настройка разрешенных пользователей
+        allowed_users_str = os.getenv('TELEGRAM_ALLOWED_USERS', '').strip()
+        if allowed_users_str:
+            # Парсим список пользователей (может быть username или user_id)
+            self.allowed_users = set()
+            for user in allowed_users_str.split(','):
+                user = user.strip()
+                if user:
+                    # Если это число, добавляем как user_id, иначе как username
+                    if user.isdigit():
+                        self.allowed_users.add(int(user))
+                    else:
+                        # Убираем @ если есть
+                        username = user.lstrip('@').lower()
+                        self.allowed_users.add(username)
+        else:
+            self.allowed_users = None  # None означает разрешено всем
+            
         self._setup_handlers()
 
     def _safe_url_encode(self, url: str) -> str:
@@ -31,6 +50,32 @@ class TelegramBot:
         # Для Telegram лучше использовать HTML формат ссылок
         # или просто возвращать URL как есть для HTML parse_mode
         return url
+
+    def _is_user_allowed(self, update: Update) -> bool:
+        """Проверка, разрешен ли пользователь для использования бота"""
+        if self.allowed_users is None:
+            return True  # Если список не настроен, разрешаем всем
+            
+        user = update.effective_user
+        if not user:
+            return False
+            
+        # Проверяем по user_id
+        if user.id in self.allowed_users:
+            return True
+            
+        # Проверяем по username
+        if user.username and user.username.lower() in self.allowed_users:
+            return True
+            
+        return False
+
+    async def _send_access_denied_message(self, update: Update):
+        """Отправка сообщения о запрете доступа"""
+        await update.message.reply_text(
+            "❌ У вас нет доступа к этому боту.\n"
+            "Обратитесь к администратору для получения разрешения."
+        )
 
     def _setup_handlers(self):
         """Настройка обработчиков команд и сообщений"""
@@ -43,6 +88,11 @@ class TelegramBot:
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
+        # Проверка разрешенных пользователей
+        if not self._is_user_allowed(update):
+            await self._send_access_denied_message(update)
+            return
+            
         welcome_message = (
             "Привет! Я ассистент для создания событий в Google Calendar.\n\n"
             "Вы можете:\n"
@@ -59,6 +109,11 @@ class TelegramBot:
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /help"""
+        # Проверка разрешенных пользователей
+        if not self._is_user_allowed(update):
+            await self._send_access_denied_message(update)
+            return
+            
         help_message = (
             "Как использовать бота:\n\n"
             "1️⃣ Отправьте мне описание события для календаря:\n"
@@ -82,6 +137,11 @@ class TelegramBot:
 
     async def handle_voice_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик голосовых сообщений"""
+        # Проверка разрешенных пользователей
+        if not self._is_user_allowed(update):
+            await self._send_access_denied_message(update)
+            return
+            
         user_id = str(update.effective_user.id) if update.effective_user else None
         username = update.effective_user.username if update.effective_user else None
 
@@ -183,6 +243,11 @@ class TelegramBot:
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик текстовых сообщений"""
+        # Проверка разрешенных пользователей
+        if not self._is_user_allowed(update):
+            await self._send_access_denied_message(update)
+            return
+            
         user_message = update.message.text
         user_id = str(update.effective_user.id) if update.effective_user else None
         username = update.effective_user.username if update.effective_user else None
@@ -284,6 +349,13 @@ class TelegramBot:
     def run(self):
         """Запуск бота"""
         print("Запуск Telegram бота...")
+        
+        # Информация о разрешенных пользователях
+        if self.allowed_users is None:
+            print("👥 Доступ разрешен всем пользователям")
+        else:
+            users_count = len(self.allowed_users)
+            print(f"🔒 Доступ ограничен для {users_count} пользователь(ей)")
         
         # Проверяем статус модели распознавания речи
         if self.voice_service.is_model_loaded():

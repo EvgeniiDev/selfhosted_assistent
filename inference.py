@@ -3,11 +3,6 @@ from typing import Optional
 from datetime import datetime
 from logger import calendar_logger
 from models import CalendarEvent
-from model_router import ModelRouter
-from typing import Optional
-from datetime import datetime
-from logger import calendar_logger
-from models import CalendarEvent
 from llm_inference import ModelRouter
 
 
