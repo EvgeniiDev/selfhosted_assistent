@@ -13,7 +13,18 @@ SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 class GoogleCalendarClient:
     def __init__(self, credentials_path: str = "credentials.json"):
-        self.credentials_path = credentials_path
+        
+
+        credentials_path_from_env = os.getenv('GOOGLE_CREDENTIALS_PATH')
+
+        if credentials_path_from_env:
+            self.credentials_path = credentials_path
+        else:
+            self.credentials_path = credentials_path
+
+        if not os.path.exists(self.credentials_path):
+            raise Exception(f"Ошибка: Файл учетных данных Google не найден: {credentials_path}")
+
         self.service = self._authenticate()
 
     def _authenticate(self):

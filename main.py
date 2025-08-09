@@ -26,18 +26,12 @@ import os
 def main():
     # Получаем настройки из переменных окружения
     telegram_token = os.getenv('TELEGRAM_BOT_TOKEN')
-    credentials_path = os.getenv('GOOGLE_CREDENTIALS_PATH')
 
     if not telegram_token:
         print("Ошибка: Установите переменную окружения TELEGRAM_BOT_TOKEN")
         return
 
-    if not os.path.exists(credentials_path):
-        print(
-            f"Ошибка: Файл учетных данных Google не найден: {credentials_path}")
-        return
-
-    bot = TelegramBot(telegram_token, credentials_path)
+    bot = TelegramBot(telegram_token)
     bot.run()
 
 if __name__ == "__main__":

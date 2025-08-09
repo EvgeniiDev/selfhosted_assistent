@@ -90,3 +90,10 @@ class CalendarEvent(BaseModel):
             calendar_logger.warning(f"Could not parse recurrence pattern: '{recurrence}'")
         
         return None
+
+
+class Note(BaseModel):
+    title: str
+    content: str
+    created_at: str
+    tags: Optional[list] = None

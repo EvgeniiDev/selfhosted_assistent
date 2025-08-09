@@ -1,39 +1,58 @@
 from typing import Dict, Any
 from datetime import datetime
 
-from calendar_inference import CalendarInference
+from request_classifier import RequestClassifier
 from google_calendar_client import GoogleCalendarClient
-from models import CalendarEvent
+from models import CalendarEvent, Note
 from logger import calendar_logger
 
 
-class CalendarService:
-    def __init__(self, credentials_path: str = "credentials.json"):
-        self.inference = CalendarInference()
-        self.calendar_client = GoogleCalendarClient(credentials_path)
+class AssistantService:
+    def __init__(self):
+        self.inference = RequestClassifier()
+        self.calendar_client = GoogleCalendarClient()
 
     def process_user_request(self, user_message: str) -> Dict[str, Any]:
-        """Обрабатывает запрос пользователя и создает событие в календаре"""
+        """Обрабатывает запрос пользователя и создает событие в календаре или возвращает заметку"""
         try:
-            # Получаем CalendarEvent от модели
-            calendar_event = self.inference.process_request(user_message)
+            # Получаем CalendarEvent или Note от модели
+            result = self.inference.process_request(user_message)
 
-            if not calendar_event:
+            if not result:
                 return {
                     'success': False,
                     'message': 'Не удалось понять запрос. Попробуйте переформулировать.'
                 }
 
-            # Возвращаем данные для подтверждения вместо создания события
-            return {
-                'success': True,
-                'action': 'confirm',
-                'event': calendar_event,
-                'message': self._format_event_confirmation(calendar_event)
-            }
+            # Обрабатываем результат в зависимости от типа
+            match result:
+                case Note():
+                    # Заметка - возвращаем её сразу
+                    return {
+                        'success': True,
+                        'action': 'note',
+                        'note': result,
+                        'message': self._format_note_response(result)
+                    }
+                
+                case CalendarEvent():
+                    # Календарное событие - возвращаем данные для подтверждения
+                    return {
+                        'success': True,
+                        'action': 'confirm',
+                        'event': result,
+                        'message': self._format_event_confirmation(result)
+                    }
+                
+                case _:
+                    # Неожиданный тип объекта
+                    return {
+                        'success': False,
+                        'message': 'Получен неожиданный тип объекта. Попробуйте переформулировать запрос.'
+                    }
 
         except Exception as e:
-            calendar_logger.log_error(e, "calendar_service.process_user_request")
+            calendar_logger.log_error(e, "assistant_service.process_user_request")
             return {
                 'success': False,
                 'message': f'Произошла ошибка: {str(e)}'
@@ -52,7 +71,7 @@ class CalendarService:
             }
 
         except Exception as e:
-            calendar_logger.log_error(e, "calendar_service.create_confirmed_event")
+            calendar_logger.log_error(e, "assistant_service.create_confirmed_event")
             return {
                 'success': False,
                 'message': f'Произошла ошибка при создании события: {str(e)}'
@@ -95,5 +114,30 @@ class CalendarService:
         
         message += recurrence_str
         message += "\n\n✅ Подтвердить создание события?"
+
+        return message
+
+    def _format_note_response(self, note: Note) -> str:
+        """Форматирует заметку для отправки пользователю"""
+        # Форматируем дату создания
+        try:
+            created_time = datetime.fromisoformat(note.created_at)
+            created_str = created_time.strftime("%d.%m.%Y в %H:%M")
+        except:
+            created_str = note.created_at
+
+        # Собираем сообщение
+        message = f"""📝 **Ваша заметка**
+
+**{note.title}**
+
+{note.content}
+
+📅 Создано: {created_str}"""
+
+        # Добавляем теги, если они есть
+        if note.tags and len(note.tags) > 0:
+            tags_str = " ".join([f"#{tag}" for tag in note.tags])
+            message += f"\n🏷️ Теги: {tags_str}"
 
         return message
