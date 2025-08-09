@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from datetime import datetime
 
-from inference import CalendarInference
+from calendar_inference import CalendarInference
 from google_calendar_client import GoogleCalendarClient
 from models import CalendarEvent
 from logger import calendar_logger
