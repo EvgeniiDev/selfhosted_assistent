@@ -1,0 +1,49 @@
+{
+  "models": [
+    {
+      "name": "Local Qwen 30B",
+      "provider": "local",
+      "model_id": "local-model",
+      "task_types": ["calendar_parsing", "private_chat", "general_chat"],
+      "priority": 1,
+      "enabled": true,
+      "description": "Локальная модель Qwen 30B для приватных вопросов и календарных задач"
+    },
+    {
+      "name": "Mistral Small (Free)",
+      "provider": "openrouter",
+      "model_id": "mistralai/mistral-small-3.1-24b-instruct:free",
+      "task_types": ["public_chat", "general_chat", "translation", "summarization"],
+      "priority": 1,
+      "enabled": true,
+      "description": "Бесплатная модель Mistral для общих задач"
+    },
+    {
+      "name": "DeepSeek R1 (Free)",
+      "provider": "openrouter",
+      "model_id": "deepseek/deepseek-r1-0528:free",
+      "task_types": ["code_generation", "public_chat"],
+      "priority": 1,
+      "enabled": true,
+      "description": "Бесплатная модель DeepSeek для кода и рассуждений"
+    },
+    {
+      "name": "GLM-4.5 Air (Free)",
+      "provider": "openrouter",
+      "model_id": "z-ai/glm-4.5-air:free",
+      "task_types": ["public_chat", "general_chat", "translation"],
+      "priority": 2,
+      "enabled": true,
+      "description": "Бесплатная китайская модель GLM для общения"
+    },
+    {
+      "name": "Kimi Dev (Free)",
+      "provider": "openrouter",
+      "model_id": "moonshotai/kimi-dev-72b:free",
+      "task_types": ["public_chat", "general_chat", "summarization"],
+      "priority": 2,
+      "enabled": true,
+      "description": "Бесплатная модель Kimi с большим контекстом"
+    }
+  ]
+}
