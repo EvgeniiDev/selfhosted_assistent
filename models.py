@@ -1,8 +1,9 @@
 from typing import Optional, Dict, Any, Union
 from datetime import datetime
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, Field
 from dateutil.parser import parse as parse_date
 from logger import calendar_logger
+import os
 
 
 class CalendarEvent(BaseModel):
@@ -12,7 +13,7 @@ class CalendarEvent(BaseModel):
     end_time: Optional[datetime] = None
     duration_minutes: Optional[int] = None
     recurrence: Optional[str] = None
-    timezone: str = "Europe/Moscow"
+    timezone: str = Field(default_factory=lambda: os.getenv("TIMEZONE", "Europe/Moscow"))
 
     @validator('start_time', pre=True)
     def parse_start_time(cls, v):
