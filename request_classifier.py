@@ -6,19 +6,20 @@ from models import CalendarEvent, Note
 from llm_inference import ModelRouter
 
 
-SYSTEM_PROMPT = """
-You are a smart assistant that processes user requests in Russian and determines whether they want to create a calendar event or save a note.
+CLASSIFICATION_PROMPT = """
+Сlassify text into one of these categories:
 
-First, determine the request type, then extract the relevant information. Return ONLY a JSON response without additional text.
+- **calendar_event**: mentions specific time, date, meetings, appointments, reminders with time constraints
+- **note**: general information to remember, ideas, thoughts, lists, anything without specific time
+- **unknown**: unclear or ambiguous requests
 
-## Request Type Detection
-- **Calendar Event**: mentions time, date, meetings, appointments, reminders with specific times
-- **Note**: general information to remember, ideas, thoughts, lists, anything without specific time constraints
+Respond with ONLY one word: calendar_event, note, or unknown
+"""
 
-## Response Format
-Return exactly this JSON structure based on request type:
+CALENDAR_EVENT_PROMPT = """
+You are a calendar event extractor. The user wants to create a calendar event. Extract event details and return ONLY a JSON response.
 
-### For Calendar Events:
+Return exactly this JSON structure:
 {
   "type": "calendar_event",
   "data": {
@@ -31,50 +32,43 @@ Return exactly this JSON structure based on request type:
   }
 }
 
-### For Notes:
-{
-  "type": "note",
-  "data": {
-    "title": "string",
-    "content": "string",
-    "created_at": "YYYY-MM-DDTHH:MM:SS",
-    "tags": ["string", "string"] or null
-  }
-}
-
-## Calendar Event Rules
+## Rules:
 1. Assume all times are in the user's local time zone
 2. If **end time** is specified → fill `end_time`, set `duration_minutes` = null
 3. If **duration** is specified → fill `duration_minutes`, set `end_time` = null
 4. If **neither** is specified → set `duration_minutes` = 60, `end_time` = null
 
-## Note Rules
-1. **Correct grammar, punctuation, and spelling** in the content
-2. **Capitalize** sentences properly
+## Recurrence values:
+- `null` - one-time event
+- `"Daily"` - every day
+- `"Weekly on [day of week]"` - weekly
+- `"Monthly on the first [day of week]"` - monthly
+- `"Annually on [month day]"` - yearly
+- `"Every weekday (Monday to Friday)"` - workdays
+
+For dates without year, assume current year or next occurrence if date has passed.
+"""
+
+NOTE_PROMPT = """
+You are a note formatter. The user wants to save a note. Format it properly and return ONLY a JSON response.
+
+Return exactly this JSON structure:
+{
+  "type": "note",
+  "data": {
+    "title": "string",
+    "content": "string", 
+    "created_at": "YYYY-MM-DDTHH:MM:SS",
+    "tags": ["string", "string"] or null
+  }
+}
+
+## Rules:
+1. **Correct grammar, punctuation, and spelling** in Russian
+2. **Capitalize** sentences properly  
 3. Generate a short, descriptive title (3-7 words)
 4. Extract relevant tags if applicable (optional, max 3 tags)
 5. Use current timestamp for `created_at`
-
-## Recurrence Field (Calendar Events Only)
-Possible values:
-- `null` - one-time event (default)
-- `"Daily"` - every day
-- `"Weekly on [day of week]"` - weekly on specified day
-- `"Monthly on the first [day of week]"` - monthly on first specified day
-- `"Annually on [month day]"` - yearly on specified date
-- `"Every weekday (Monday to Friday)"` - every workday
-
-## Date Handling
-- For dates without a year, assume the current year or next occurrence if the date has already passed
-
-## Examples
-### Calendar:
-- Input: "Встреча каждый понедельник в 14:00"
-  Output: {"type": "calendar_event", "data": {"title": "Встреча", "description": null, "start_time": "2025-01-13T14:00:00", "end_time": null, "duration_minutes": 60, "recurrence": "Weekly on Monday"}}
-
-### Note:
-- Input: "нужно купить молоко хлеб и масло"
-  Output: {"type": "note", "data": {"title": "Список покупок", "content": "Нужно купить молоко, хлеб и масло.", "created_at": "2025-01-08T15:30:00", "tags": ["покупки"]}}
 """
 
 class RequestClassifier:
@@ -91,61 +85,130 @@ class RequestClassifier:
         calendar_logger.info(f"Configured models: {status['models_count']}")
 
     def process_request(self, user_message: str) -> Optional[Union[CalendarEvent, Note]]:
-        """Обрабатывает запрос пользователя и возвращает объект CalendarEvent или Note"""
-        # Добавляем текущее время в промт пользователя
+        """Обрабатывает запрос пользователя в два этапа: классификация -> обработка"""
         current_time = datetime.now()
         current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S (%A)")
         
-        enhanced_message = f"""
-        ## Input Data
-        - Current date: {current_time_str}
-        - User query: {user_message}
-        """
-        
         try:
-            # Все задачи приватные (локальная модель)
-            content = self.router.generate(enhanced_message, SYSTEM_PROMPT, is_private=True)
+            # Этап 1: Быстрая классификация типа запроса
+            classification = self._classify_request(user_message)
             
-            if not content:
+            if classification == "unknown":
                 calendar_logger.log_error(
-                    Exception("No response from router"),
-                    "inference.process_request - router"
+                    Exception(f"Unknown request type for: {user_message}"),
+                    "request_classifier.classify - unknown type"
                 )
                 return None
             
-            # Извлекаем JSON из ответа
+            # Этап 2: Специализированная обработка в зависимости от типа
+            enhanced_message = f"""
+            ## Input Data
+            - Current date: {current_time_str}
+            - User query: {user_message}
+            """
+            
+            match classification:
+                case "calendar_event":
+                    return self._process_calendar_event(enhanced_message)
+                case "note":
+                    return self._process_note(enhanced_message, current_time)
+                case _:
+                    calendar_logger.log_error(
+                        Exception(f"Unexpected classification: {classification}"),
+                        "request_classifier.process_request - classification"
+                    )
+                    return None
+                    
+        except Exception as e:
+            calendar_logger.log_error(e, "request_classifier.process_request - General exception")
+            return None
+
+    def _classify_request(self, user_message: str) -> str:
+        """Первый этап: быстрая классификация типа запроса"""
+        try:
+            # Используем короткий промт для классификации
+            classification_response = self.router.generate(
+                user_message, 
+                CLASSIFICATION_PROMPT, 
+                is_private=True
+            )
+            
+            if not classification_response:
+                return "unknown"
+            
+            # Извлекаем классификацию из ответа
+            classification = classification_response.strip().lower()
+            
+            # Проверяем, что получили валидную классификацию
+            valid_types = {"calendar_event", "note", "unknown"}
+            if classification in valid_types:
+                calendar_logger.info(f"Request classified as: {classification}")
+                return classification
+            else:
+                calendar_logger.warning(f"Invalid classification received: {classification}")
+                return "unknown"
+                
+        except Exception as e:
+            calendar_logger.log_error(e, "request_classifier._classify_request")
+            return "unknown"
+
+    def _process_calendar_event(self, enhanced_message: str) -> Optional[CalendarEvent]:
+        """Второй этап: обработка календарного события"""
+        try:
+            content = self.router.generate(enhanced_message, CALENDAR_EVENT_PROMPT, is_private=True)
+            
+            if not content:
+                return None
+            
+            parsed_data = self._extract_json_from_response(content)
+            if parsed_data and parsed_data.get('type') == 'calendar_event':
+                return CalendarEvent(**parsed_data['data'])
+            
+            return None
+            
+        except Exception as e:
+            calendar_logger.log_error(e, "request_classifier._process_calendar_event")
+            return None
+
+    def _process_note(self, enhanced_message: str, current_time: datetime) -> Optional[Note]:
+        """Второй этап: обработка заметки"""
+        try:
+            content = self.router.generate(enhanced_message, NOTE_PROMPT, is_private=True)
+            
+            if not content:
+                return None
+            
+            parsed_data = self._extract_json_from_response(content)
+            if parsed_data and parsed_data.get('type') == 'note':
+                return Note(**parsed_data['data'])
+            
+            return None
+            
+        except Exception as e:
+            calendar_logger.log_error(e, "request_classifier._process_note")
+            return None
+
+    def _extract_json_from_response(self, content: str) -> Optional[dict]:
+        """Извлекает и парсит JSON из ответа модели"""
+        try:
             json_start = content.find('{')
             json_end = content.rfind('}') + 1
+            
             if json_start >= 0 and json_end > json_start:
                 json_str = content[json_start:json_end]
                 parsed_data = json.loads(json_str)
                 
                 # Логируем структурированный ответ
                 calendar_logger.log_llm_response(content, parsed_data)
-                
-                # Определяем тип и создаем соответствующий объект
-                if parsed_data.get('type') == 'calendar_event':
-                    return CalendarEvent(**parsed_data['data'])
-                elif parsed_data.get('type') == 'note':
-                    return Note(**parsed_data['data'])
-                else:
-                    calendar_logger.log_error(
-                        Exception(f"Unknown type in response: {parsed_data.get('type')}"),
-                        "inference.process_request - type detection"
-                    )
-                    return None
+                return parsed_data
             else:
                 calendar_logger.log_error(
                     Exception(f"No JSON found in response: {content}"),
-                    "inference.process_request - JSON extraction"
+                    "request_classifier._extract_json_from_response"
                 )
                 return None
                 
         except json.JSONDecodeError as e:
-            if 'content' in locals():
-                calendar_logger.log_llm_response(content, None)
-            calendar_logger.log_error(e, "inference.process_request - JSON parsing")
-        except Exception as e:
-            calendar_logger.log_error(e, "inference.process_request - General exception")
-
-        return None
+            calendar_logger.log_llm_response(content, None)
+            calendar_logger.log_error(e, "request_classifier._extract_json_from_response - JSON parsing")
+            return None
