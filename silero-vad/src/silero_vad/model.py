@@ -1,7 +1,11 @@
 from .utils_vad import init_jit_model, OnnxWrapper
 import torch
 torch.set_num_threads(torch.get_num_interop_threads())
-
+# Prefer backport if available; otherwise use stdlib importlib.resources
+try:
+    import importlib_resources as impresources  # type: ignore
+except ModuleNotFoundError:
+    from importlib import resources as impresources  # type: ignore
 
 def load_silero_vad(onnx=False, opset_version=16):
     available_ops = [15, 16]
@@ -18,10 +22,8 @@ def load_silero_vad(onnx=False, opset_version=16):
     package_path = "silero_vad.data"
 
     try:
-        import importlib_resources as impresources
         model_file_path = str(impresources.files(package_path).joinpath(model_name))
     except:
-        from importlib import resources as impresources
         try:
             with impresources.path(package_path, model_name) as f:
                 model_file_path = f

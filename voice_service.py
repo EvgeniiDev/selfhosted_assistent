@@ -60,11 +60,30 @@ class VoiceService:
             # Конвертируем в аудио формат, который понимает модель
             audio_data = self._convert_ogg_to_wav(file_bytes)
             
-            # Передаем байты напрямую в модель (sample_rate уже 16000 после конвертации)
-            transcription = self.model.transcribe(audio_data, sample_rate=16000)
-            
-            calendar_logger.info(f"Голосовое сообщение транскрибировано: {transcription}")
-            return transcription.strip() if transcription.strip() else None
+            # Передаем тензор напрямую в модель (sample_rate уже 16000 после конвертации)
+            result = self.model.transcribe_longform(audio_data, sample_rate=16000)
+
+            # GigaAM.transcribe_longform возвращает список сегментов,
+            # каждый сегмент: {"transcription": str, "boundaries": (start, end)}
+            if isinstance(result, list):
+                segments = []
+                for seg in result:
+                    if isinstance(seg, dict):
+                        text = seg.get("transcription")
+                        if isinstance(text, str) and text.strip():
+                            segments.append(text.strip())
+                    elif isinstance(seg, str) and seg.strip():
+                        segments.append(seg.strip())
+                transcription = " ".join(segments).strip()
+            elif isinstance(result, str):
+                transcription = result.strip()
+            else:
+                transcription = str(result).strip() if result is not None else ""
+
+            calendar_logger.info(
+                f"Голосовое сообщение транскрибировано: {transcription if len(transcription) < 256 else transcription[:253] + '...'}"
+            )
+            return transcription if transcription else None
             
         except Exception as e:
             calendar_logger.log_error(e, "voice_service.transcribe_voice_message")

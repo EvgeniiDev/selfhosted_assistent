@@ -1,12 +1,13 @@
 import logging
 import os
 import sys
+import importlib
 from io import BytesIO
 from typing import List, Tuple, Union
 
 # Добавляем путь к silero-vad в sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
-silero_vad_path = os.path.join(current_dir, '..', '..', '..', 'silero-vad', 'src')
+silero_vad_path = os.path.join(current_dir, '..', '..', 'silero-vad', 'src')
 silero_vad_path = os.path.abspath(silero_vad_path)
 if silero_vad_path not in sys.path:
     sys.path.insert(0, silero_vad_path)
@@ -14,7 +15,6 @@ if silero_vad_path not in sys.path:
 import torch
 from pyannote.audio import Pipeline
 from pydub import AudioSegment
-from silero_vad import load_silero_vad, get_speech_timestamps
 
 _PIPELINE = None
 _SILERO_MODEL = None
@@ -49,7 +49,16 @@ def get_silero_vad(device: Union[str, torch.device]):
     global _SILERO_MODEL
 
     if _SILERO_MODEL is None:
-        _SILERO_MODEL = load_silero_vad()
+        try:
+            silero_mod = importlib.import_module("silero_vad")
+        except ModuleNotFoundError as exc:
+            logging.error(
+                "silero_vad package not found. Ensure 'silero-vad/src' is on sys.path: %s",
+                silero_vad_path,
+            )
+            raise exc
+
+        _SILERO_MODEL = silero_mod.load_silero_vad()
 
     return _SILERO_MODEL.to(device)
 
@@ -109,7 +118,8 @@ def segment_audio(
         # Process audio with Silero VAD to obtain segments with speech activity
         silero_model = get_silero_vad(device)
 
-        sad_segments = get_speech_timestamps(
+        silero_mod = importlib.import_module("silero_vad")
+        sad_segments = silero_mod.get_speech_timestamps(
             wav_tensor.to(device),
             model=silero_model,
             sampling_rate=sample_rate,

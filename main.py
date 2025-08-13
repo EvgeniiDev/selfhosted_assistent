@@ -25,7 +25,7 @@ euromoe-2.6b-a0.6b-instruct-preview -- 44 т с но возвращает бре
 t-lite-it-1.0 - 5 т с
 baidu/ernie-4.5-21b-a3b - 13 тс но продолбало минуты
 devstral-small-2507_gguf - 2.5 товена но ок
-Best-smal-LLM-GGUF/Gemma3-4B-Medical-COT-SFT-2kstep-4kcol.Q6_K (gemma3) - 10  t\s
+Best-smal-LLM-GGUF/Gemma3-4B-Medical-COT-SFT-2kstep-4kcol.Q6_K (gemma3) - 10  t/s
 
 
 

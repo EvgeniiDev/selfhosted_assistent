@@ -8,6 +8,8 @@ from numpy import ndarray
 
 from .preprocess import SAMPLE_RATE, load_audio
 from .utils import onnx_converter
+from .vad_utils import segment_audio
+
 
 LONGFORM_THRESHOLD = 25 * SAMPLE_RATE
 
@@ -155,8 +157,6 @@ class GigaAMASR(GigaAM):
         If the input is not a string, it is assumed to be an iterable object
         containing the audio samples at provided sample rate.
         """
-        from .vad_utils import segment_audio
-
         transcribed_segments = []
         wav = load_audio(wav_or_file, sample_rate=sample_rate, return_format="int")
         segments, boundaries = segment_audio(
