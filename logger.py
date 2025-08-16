@@ -17,9 +17,12 @@ class CalendarLogger:
         # Настройка логгера
         self.logger = logging.getLogger('calendar_assistant')
         self.logger.setLevel(logging.INFO)
+        # Отключаем распространение сообщений к корневому логгеру,
+        # чтобы избежать дублирования в консоли при наличии root-хендлеров
+        self.logger.propagate = False
         
         # Удаляем старые хендлеры если они есть
-        for handler in self.logger.handlers[:]:
+        for handler in list(self.logger.handlers):
             self.logger.removeHandler(handler)
         
         # Настройка форматтера
