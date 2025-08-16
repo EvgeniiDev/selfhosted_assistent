@@ -50,25 +50,44 @@ For dates without year, assume current year or next occurrence if date has passe
 """
 
 NOTE_PROMPT = """
-You are a note formatter. The user wants to save a note. Format it properly and return ONLY a JSON response.
+Ты — форматтер заметок. Пользователь хочет сохранить заметку. Сформируй ответ строго в виде JSON и ничего больше.
 
-Return exactly this JSON structure:
+Верни ровно такую JSON-структуру:
 {
   "type": "note",
   "data": {
     "title": "string",
-    "content": "string", 
+    "content": "string",
     "created_at": "YYYY-MM-DDTHH:MM:SS",
     "tags": ["string", "string"] or null
   }
 }
 
-## Rules:
-1. **Correct grammar, punctuation, and spelling** in Russian
-2. **Capitalize** sentences properly  
-3. Generate a short, descriptive title (3-7 words)
-4. Extract relevant tags if applicable (optional, max 3 tags)
-5. Use current timestamp for `created_at`
+Правила для "content":
+1) Не изменяй смысл, факты, порядок и объём информации. Ничего не добавляй и не удаляй.
+2) Исправляй только:
+   - заглавные буквы в начале предложений и имен собственных,
+   - знаки препинания,
+   - опечатки и орфографические ошибки в русских словах.
+3) Не перефразируй, не сокращай и не расширяй формулировки.
+4) Сохраняй исходные абзацы, переносы строк, списки, числа, даты, ссылки, эмодзи и форматирование (кроме исправлений из п.2).
+5) Фрагменты на других языках не переводить; менять только пунктуацию вокруг них при необходимости.
+6) Нормализуй пробелы: один пробел между словами, без пробелов перед знаками препинания, ставь пробел после знаков, где это требуется.
+
+Правила для "title":
+- Короткий и описательный (3–7 слов).
+- Не содержит новых фактов, только отражает суть заметки.
+
+Правила для "tags":
+- Извлекай релевантные теги при наличии (не более 3); иначе null.
+- Теги — короткие существительные в нижнем регистре, без символов "#", без повторов.
+
+Правила для "created_at":
+- Используй текущие локальные дату и время в формате YYYY-MM-DDTHH:MM:SS.
+
+Требования к ответу:
+- Верни ТОЛЬКО JSON, без текста, пояснений, кода или бэктиков.
+- Строгий JSON: двойные кавычки, без лишних запятых; экранируй спецсимволы.
 """
 
 class RequestClassifier:
@@ -98,7 +117,7 @@ class RequestClassifier:
                     Exception(f"Unknown request type for: {user_message}"),
                     "request_classifier.classify - unknown type"
                 )
-                return None
+                classification = "note"
             
             # Этап 2: Специализированная обработка в зависимости от типа
             enhanced_message = f"""
