@@ -113,10 +113,7 @@ class RequestClassifier:
             classification = self._classify_request(user_message)
             
             if classification == "unknown":
-                calendar_logger.log_error(
-                    Exception(f"Unknown request type for: {user_message}"),
-                    "request_classifier.classify - unknown type"
-                )
+                calendar_logger.warning(f"Unknown request type for: {user_message} request_classifier.classify - unknown type")
                 classification = "note"
             
             # Этап 2: Специализированная обработка в зависимости от типа
