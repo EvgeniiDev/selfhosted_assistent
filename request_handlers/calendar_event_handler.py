@@ -58,4 +58,4 @@ For dates without year, assume current year or next occurrence if date has passe
         return None
     
     def create_calendar_event(self, enhanced_message: str) -> Optional[CalendarEvent]:
-        return self.process(enhanced_message)
+        return self.process(enhanced_message, False)

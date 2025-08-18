@@ -45,7 +45,7 @@ class BaseRequestHandler(ABC):
         """
         pass
     
-    def process(self, enhanced_message: str, **kwargs) -> Optional[Any]:
+    def process(self, enhanced_message: str, is_private: bool, **kwargs) -> Optional[Any]:
         """
         Обрабатывает сообщение с помощью LLM и парсит результат
         
@@ -61,7 +61,7 @@ class BaseRequestHandler(ABC):
             content = self.router.generate(
                 enhanced_message, 
                 self.get_prompt(), 
-                is_private=True
+                is_private=is_private
             )
             
             if not content:

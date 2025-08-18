@@ -37,7 +37,7 @@ Respond with ONLY one word: calendar_event, note, or unknown
     
     def classify_request(self, user_message: str) -> str:
         try:
-            classification = self.process(user_message)
+            classification = self.process(user_message, True)
             return classification if classification else "unknown"
             
         except Exception as e:

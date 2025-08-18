@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "name": "Local Qwen 30B",
+      "name": "Local Qwen3",
       "provider": "local",
       "model_id": "local-model",
       "task_types": ["calendar_parsing", "private_chat", "general_chat"],
@@ -10,39 +10,30 @@
       "description": "Локальная модель Qwen 30B для приватных вопросов и календарных задач"
     },
     {
-      "name": "Mistral Small (Free)",
+      "name": "Google: Gemma 3 27B (free)",
       "provider": "openrouter",
-      "model_id": "mistralai/mistral-small-3.1-24b-instruct:free",
+      "model_id": "google/gemma-3-27b-it:free",
+      "task_types": ["public_chat", "general_chat", "summarization"],
+      "priority": 1,
+      "enabled": false,
+      "description": "Бесплатная модель Kimi с большим контекстом"
+    },
+    {
+      "name": "Mistral: Mistral Small 3.2 24B (free)",
+      "provider": "openrouter",
+      "model_id": "mistralai/mistral-small-3.2-24b-instruct:free",
       "task_types": ["public_chat", "general_chat", "translation", "summarization"],
       "priority": 1,
       "enabled": true,
       "description": "Бесплатная модель Mistral для общих задач"
     },
     {
-      "name": "DeepSeek R1 (Free)",
+      "name": "DeepSeek: DeepSeek V3 0324 (free)",
       "provider": "openrouter",
-      "model_id": "deepseek/deepseek-r1-0528:free",
-      "task_types": ["code_generation", "public_chat"],
-      "priority": 1,
-      "enabled": true,
-      "description": "Бесплатная модель DeepSeek для кода и рассуждений"
-    },
-    {
-      "name": "GLM-4.5 Air (Free)",
-      "provider": "openrouter",
-      "model_id": "z-ai/glm-4.5-air:free",
-      "task_types": ["public_chat", "general_chat", "translation"],
-      "priority": 2,
-      "enabled": true,
-      "description": "Бесплатная китайская модель GLM для общения"
-    },
-    {
-      "name": "Kimi Dev (Free)",
-      "provider": "openrouter",
-      "model_id": "moonshotai/kimi-dev-72b:free",
+      "model_id": "deepseek/deepseek-chat-v3-0324:free",
       "task_types": ["public_chat", "general_chat", "summarization"],
       "priority": 2,
-      "enabled": true,
+      "enabled": false,
       "description": "Бесплатная модель Kimi с большим контекстом"
     }
   ]

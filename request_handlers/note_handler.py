@@ -43,8 +43,8 @@ class NoteHandler(BaseRequestHandler):
 - Используй текущие локальные дату и время в формате YYYY-MM-DDTHH:MM:SS.
 
 Требования к ответу:
-- Верни ТОЛЬКО JSON, без текста, пояснений, кода или бэктиков.
-- Строгий JSON: двойные кавычки, без лишних запятых; экранируй спецсимволы.
+- Верни ТОЛЬКО JSON, в одну строку без переносов, без текста, пояснений, кода или бэктиков.
+- Компактный JSON: без лишних пробелов между элементами, без экранирования специальных символов, без лишних запятых.
 """
     
     def get_prompt(self) -> str:
@@ -67,4 +67,4 @@ class NoteHandler(BaseRequestHandler):
         return None
     
     def create_note(self, enhanced_message: str, current_time: datetime) -> Optional[Note]:
-        return self.process(enhanced_message, current_time=current_time)
+        return self.process(enhanced_message, False, current_time=current_time)
