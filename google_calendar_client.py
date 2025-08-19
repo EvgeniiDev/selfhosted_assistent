@@ -8,35 +8,28 @@ from googleapiclient.discovery import build
 from logger import calendar_logger
 
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+SCOPES = ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/tasks']
 
 
 class GoogleCalendarClient:
     def __init__(self, credentials_path: str = "credentials.json"):
-        
-
         credentials_path_from_env = os.getenv('GOOGLE_CREDENTIALS_PATH')
-
-        if credentials_path_from_env:
-            self.credentials_path = credentials_path
-        else:
-            self.credentials_path = credentials_path
+        self.credentials_path = credentials_path_from_env or credentials_path
 
         if not os.path.exists(self.credentials_path):
-            raise Exception(f"Ошибка: Файл учетных данных Google не найден: {credentials_path}")
+            raise Exception(f"Credentials file not found: {self.credentials_path}")
 
-        self.service = self._authenticate()
+        services = self._authenticate()
+        self.calendar_service = services.get('calendar')
+        self.tasks_service = services.get('tasks')
 
     def _authenticate(self):
-        """Аутентификация с Google Calendar API"""
-        # Пробуем загрузить токен из переменных окружения
+        """Authenticate and return dict with 'calendar' and 'tasks' services."""
         token_json = os.getenv('GOOGLE_OAUTH_TOKEN')
         if token_json:
             try:
                 token_data = json.loads(token_json)
                 creds = Credentials.from_authorized_user_info(token_data, SCOPES)
-                
-                # Проверяем и обновляем токен если нужно
                 if creds and creds.expired and creds.refresh_token:
                     print("🔄 Обновляем истекший токен...")
                     creds.refresh(Request())
@@ -44,15 +37,17 @@ class GoogleCalendarClient:
                     print("✅ Токен обновлен в памяти")
                 
                 if creds and creds.valid:
-                    print("✅ Используется токен из переменных окружения")
-                    return build('calendar', 'v3', credentials=creds)
-            except (json.JSONDecodeError, Exception) as e:
-                print(f"⚠️ Ошибка при загрузке токена из переменных окружения: {e}")
-        
-        # Если токен не найден или не валиден - запускаем автоматическую авторизацию
-        print("⚠️ Токен не найден в переменных окружения")
+                    calendar_logger.info("Using Google token from environment")
+                    return {
+                        'calendar': build('calendar', 'v3', credentials=creds),
+                        'tasks': build('tasks', 'v1', credentials=creds)
+                    }
+            except Exception as e:
+                calendar_logger.warning(f"Failed to load token from env: {e}")
+
+        # Fallback to interactive flow
         return self._authenticate_auto()
-    
+
     def _authenticate_auto(self):
         """Автоматическая OAuth аутентификация"""
         print("🚀 Запускаем автоматическую авторизацию...")
@@ -75,13 +70,15 @@ class GoogleCalendarClient:
             
             print("✅ Авторизация завершена успешно!")
             print("⚠️ ВАЖНО: Скопируйте токен выше в main.env для постоянного использования")
-            return build('calendar', 'v3', credentials=creds)
+            return {
+                'calendar': build('calendar', 'v3', credentials=creds),
+                'tasks': build('tasks', 'v1', credentials=creds)
+            }
             
         except Exception as e:
             raise Exception(f"❌ Ошибка автоматической авторизации: {str(e)}")
     
     def _print_token_info(self, creds):
-        """Выводит информацию о токене для добавления в переменные окружения"""
         try:
             token_data = json.loads(creds.to_json())
             token_json = json.dumps(token_data, separators=(',', ':'))
@@ -90,45 +87,60 @@ class GoogleCalendarClient:
             print("📋 СКОПИРУЙТЕ ЭТОТ ТОКЕН В main.env:")
             print("="*60)
             print(f"GOOGLE_OAUTH_TOKEN={token_json}")
-            print("="*60)
-            print("Или установите переменную окружения в PowerShell:")
-            print(f'$env:GOOGLE_OAUTH_TOKEN="{token_json}"')
-            print("="*60 + "\n")
         except Exception as e:
-            print(f"⚠️ Не удалось вывести информацию о токене: {e}")
+            calendar_logger.warning(f"Unable to serialize credentials for copy/paste: {e}")
 
     def create_event(self, event_data: Dict[str, Any], calendar_id: str = 'primary') -> Optional[Dict[str, Any]]:
-        """Создает событие в календаре"""
         try:
-            # Логируем запрос к Google Calendar
             calendar_logger.log_calendar_request(event_data)
-            
-            event = self.service.events().insert(
-                calendarId=calendar_id,
-                body=event_data
-            ).execute()
-
+            event = self.calendar_service.events().insert(calendarId=calendar_id, body=event_data).execute()
             result = {
                 'success': True,
                 'event_id': event.get('id'),
                 'event_link': event.get('htmlLink'),
                 'message': f"Событие '{event_data.get('summary')}' создано успешно"
             }
-            
-            # Логируем успешный ответ от Google Calendar
             calendar_logger.log_calendar_response(True, result)
-            
             return result
-            
         except Exception as e:
             result = {
                 'success': False,
                 'error': str(e),
                 'message': f"Ошибка при создании события: {str(e)}"
             }
-            
-            # Логируем ошибку от Google Calendar
             calendar_logger.log_calendar_response(False, result)
             calendar_logger.log_error(e, "google_calendar_client.create_event")
-            
+            return result
+
+    def create_task(self, task_data: Dict[str, Any], tasklist: str = '@default') -> Optional[Dict[str, Any]]:
+        """Create a task. Resolve tasklist id from env or by matching common titles, validate and fallback to '@default'."""
+        try:
+            calendar_logger.log_calendar_request(task_data)
+
+            tasklist_id = os.getenv('GOOGLE_TASKLIST_ID')
+
+            if not tasklist_id:
+                tasklist_id = tasklist or '@default'
+
+            calendar_logger.info(f"Using tasklist id: {tasklist_id}")
+
+            task = self.tasks_service.tasks().insert(tasklist=tasklist_id, body=task_data).execute()
+            result = {
+                'success': True,
+                'task_id': task.get('id'),
+                'task': task,
+                'message': f"Задача '{task_data.get('title')}' создана успешно"
+            }
+
+            calendar_logger.log_calendar_response(True, result)
+            return result
+
+        except Exception as e:
+            result = {
+                'success': False,
+                'error': str(e),
+                'message': f"Ошибка при создании задачи: {str(e)}"
+            }
+            calendar_logger.log_calendar_response(False, result)
+            calendar_logger.log_error(e, "google_calendar_client.create_task")
             return result

@@ -10,9 +10,10 @@ class ClassificationHandler(BaseRequestHandler):
 
 - **calendar_event**: mentions specific time, date, meetings, appointments, reminders with time constraints
 - **note**: general information to remember, ideas, thoughts, lists, anything without specific time
+- **task**: short task/reminder that the user wants to schedule or be reminded about (could have due date/time)
 - **unknown**: unclear or ambiguous requests
 
-Respond with ONLY one word: calendar_event, note, or unknown
+Respond with ONLY one word: calendar_event, task, note, or unknown
 """
     
     def get_prompt(self) -> str:
@@ -26,8 +27,7 @@ Respond with ONLY one word: calendar_event, note, or unknown
             return None
         
         classification = response_content.strip().lower()
-        
-        valid_types = {"calendar_event", "note", "unknown"}
+        valid_types = {"calendar_event", "note", "task", "unknown"}
         if classification in valid_types:
             calendar_logger.info(f"Request classified as: {classification}")
             return classification

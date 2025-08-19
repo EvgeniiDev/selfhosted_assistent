@@ -98,3 +98,88 @@ class Note(BaseModel):
     content: str
     created_at: str
     tags: Optional[list] = None
+
+
+class Task(BaseModel):
+    title: str
+    description: Optional[str] = None
+    due_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    recurrence: Optional[str] = None
+    timezone: str = Field(default_factory=lambda: os.getenv("TIMEZONE", "Europe/Moscow"))
+
+    @validator('due_time', pre=True)
+    def parse_due_time(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, str):
+            return parse_date(v)
+        return v
+
+    def to_google_event(self) -> Dict[str, Any]:
+        """Convert Task to a Google Calendar event dictionary.
+
+        - If due_time provided -> use as start_time.
+        - If duration provided -> compute end_time using duration.
+        - If neither -> create a zero-length reminder at due_time if set, otherwise skip time.
+        """
+        if self.due_time:
+            start = self.due_time
+        else:
+            # If no due_time, set start to now for an immediate reminder
+            start = datetime.now()
+
+        if self.duration_minutes:
+            from datetime import timedelta
+            end = start + timedelta(minutes=self.duration_minutes)
+        else:
+            from datetime import timedelta
+            end = start + timedelta(minutes=30)
+
+        event = {
+            'summary': self.title,
+            'start': {
+                'dateTime': start.isoformat(),
+                'timeZone': self.timezone,
+            },
+            'end': {
+                'dateTime': end.isoformat(),
+                'timeZone': self.timezone,
+            },
+            'description': self.description or ''
+        }
+
+        if self.recurrence:
+            rrule = CalendarEvent._parse_recurrence_to_rrule(self, self.recurrence)
+            if rrule:
+                event['recurrence'] = [rrule]
+
+        return event
+
+    def to_google_task(self) -> Dict[str, Any]:
+        """Convert Task to Google Tasks API payload."""
+        payload: Dict[str, Any] = {
+            'title': self.title,
+            'notes': self.description or ''
+        }
+
+        if self.due_time:
+            # Ensure due is RFC3339 with timezone offset. If naive datetime, attach configured timezone.
+            try:
+                tzinfo = self.due_time.tzinfo
+                if tzinfo is None:
+                    try:
+                        from zoneinfo import ZoneInfo
+                        tz = ZoneInfo(self.timezone)
+                        aware = self.due_time.replace(tzinfo=tz)
+                        payload['due'] = aware.isoformat()
+                    except Exception:
+                        # Fallback: append Z (UTC)
+                        payload['due'] = self.due_time.isoformat() + 'Z'
+                else:
+                    payload['due'] = self.due_time.isoformat()
+            except Exception:
+                payload['due'] = self.due_time.isoformat()
+
+        return payload
+

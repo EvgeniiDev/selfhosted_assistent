@@ -210,7 +210,7 @@ class TelegramBot:
                 
                 # Сохраняем событие для подтверждения
                 event_id = f"{user_id}_{update.message.message_id}"
-                self.pending_events[event_id] = event
+                self.pending_events[event_id] = {"type": "event", "payload": event}
                 
                 # Создаем клавиатуру с кнопками
                 keyboard = [
@@ -239,6 +239,29 @@ class TelegramBot:
                     await update.message.reply_text(note_message, parse_mode='Markdown')
                 
             elif result.get('success'):
+                # Generic success (e.g., task confirm)
+                # Если это подтверждение задачи — сохраним payload как задачу
+                if result.get('action') == 'confirm_task':
+                    task = result['task']
+                    event_id = f"{user_id}_{update.message.message_id}"
+                    self.pending_events[event_id] = {"type": "task", "payload": task}
+                    # reuse keyboard
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_{event_id}"),
+                            InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_{event_id}")
+                        ],
+                        [
+                            InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_{event_id}")
+                        ]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    if processing_message:
+                        await processing_message.edit_text(result['message'], reply_markup=reply_markup, parse_mode='Markdown')
+                    else:
+                        await update.message.reply_text(result['message'], reply_markup=reply_markup, parse_mode='Markdown')
+                    return
+
                 response = f"✅ {result['message']}"
                 if result.get('event_link'):
                     response += f"\n\n🔗 <a href=\"{result['event_link']}\">Ссылка на событие</a>"
@@ -305,13 +328,19 @@ class TelegramBot:
         if event_id not in self.pending_events:
             await query.edit_message_text("❌ Событие не найдено или уже обработано.")
             return
+        pending = self.pending_events[event_id]
 
-        event = self.pending_events[event_id]
-        
         try:
-            # Создаем событие в календаре
-            result = self.assistant_service.create_confirmed_event(event)
-            
+            if pending.get('type') == 'event':
+                event = pending.get('payload')
+                result = self.assistant_service.create_confirmed_event(event)
+            elif pending.get('type') == 'task':
+                task = pending.get('payload')
+                result = self.assistant_service.create_confirmed_task(task)
+            else:
+                await query.edit_message_text("❌ Неподдерживаемый тип для подтверждения.")
+                return
+
             if result.get('success'):
                 response = f"✅ {result['message']}"
                 if result.get('event_link'):
@@ -319,15 +348,18 @@ class TelegramBot:
             else:
                 response = f"❌ {result['message']}"
 
-            # Используем HTML parse_mode для корректной обработки ссылок
-            await query.edit_message_text(response, parse_mode='HTML', disable_web_page_preview=True)
-            
-            # Удаляем событие из ожидающих
+            # Используем HTML parse_mode для корректной обработки ссылок, но если в ответе есть неподдерживаемые теги — отправляем plain text
+            try:
+                await query.edit_message_text(response, parse_mode='HTML', disable_web_page_preview=True)
+            except Exception:
+                await query.edit_message_text(response)
+
+            # Удаляем элемент из ожидающих
             del self.pending_events[event_id]
-            
+
         except Exception as e:
             calendar_logger.log_error(e, "telegram_bot._confirm_event")
-            await query.edit_message_text(f"❌ Произошла ошибка при создании события: {str(e)}")
+            await query.edit_message_text(f"❌ Произошла ошибка при создании: {str(e)}")
 
     async def _cancel_event(self, query, event_id: str):
         """Отмена создания события"""

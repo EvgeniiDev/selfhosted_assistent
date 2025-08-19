@@ -1,12 +1,13 @@
 from typing import Optional, Union
 from datetime import datetime
 from logger import calendar_logger
-from models import CalendarEvent, Note
+from models import CalendarEvent, Note, Task
 from llm_inference import ModelRouter
 from request_handlers import (
     ClassificationHandler,
     CalendarEventHandler, 
-    NoteHandler
+    NoteHandler,
+    TaskHandler
 )
 
 class RequestClassifier:
@@ -16,6 +17,7 @@ class RequestClassifier:
         self.classification_handler = ClassificationHandler(self.router)
         self.calendar_handler = CalendarEventHandler(self.router)
         self.note_handler = NoteHandler(self.router)
+        self.task_handler = TaskHandler(self.router)
         
         calendar_logger.info('RequestClassifier initialized with notes support')
         
@@ -44,6 +46,8 @@ class RequestClassifier:
             match classification:
                 case "calendar_event":
                     return self.calendar_handler.create_calendar_event(enhanced_message)
+                case "task":
+                    return self.task_handler.create_task(enhanced_message)
                 case "note":
                     return self.note_handler.create_note(enhanced_message, current_time)
                 case _:

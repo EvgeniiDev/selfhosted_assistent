@@ -3,7 +3,7 @@ from datetime import datetime
 
 from request_classifier import RequestClassifier
 from google_calendar_client import GoogleCalendarClient
-from models import CalendarEvent, Note
+from models import CalendarEvent, Note, Task
 from logger import calendar_logger
 
 
@@ -42,6 +42,14 @@ class AssistantService:
                         'action': 'confirm',
                         'event': result,
                         'message': self._format_event_confirmation(result)
+                    }
+                case Task():
+                    # Для задач используем отдельный подтверждающий поток
+                    return {
+                        'success': True,
+                        'action': 'confirm_task',
+                        'task': result,
+                        'message': self._format_task_confirmation(result)
                     }
                 
                 case _:
@@ -141,3 +149,47 @@ class AssistantService:
             message += f"\n🏷️ Теги: {tags_str}"
 
         return message
+
+    def _task_to_calendar_event(self, task: Task) -> CalendarEvent:
+        """Convert Task to CalendarEvent for confirmation/creation."""
+        # If task has due_time, use it as start_time
+        start_time = task.due_time if task.due_time else datetime.now()
+        # Map duration -> duration_minutes
+        duration = task.duration_minutes if task.duration_minutes else None
+
+        event = CalendarEvent(
+            title=task.title,
+            description=task.description,
+            start_time=start_time,
+            duration_minutes=duration,
+            recurrence=task.recurrence,
+            timezone=task.timezone
+        )
+
+        return event
+
+    def create_confirmed_task(self, task: Task) -> Dict[str, Any]:
+        """Создает подтвержденную задачу через Google Tasks API"""
+        try:
+            task_payload = task.to_google_task()
+            result = self.calendar_client.create_task(task_payload)
+            return result or {
+                'success': False,
+                'message': 'Неожиданная ошибка при создании задачи'
+            }
+
+        except Exception as e:
+            calendar_logger.log_error(e, "assistant_service.create_confirmed_task")
+            return {
+                'success': False,
+                'message': f'Произошла ошибка при создании задачи: {str(e)}'
+            }
+
+    def _format_task_confirmation(self, task: Task) -> str:
+        """Форматирует задачу для подтверждения пользователем"""
+        due_str = task.due_time.strftime("%d.%m.%Y в %H:%M") if task.due_time else "без точного времени"
+        msg = f"📝 **Задача:** {task.title}\n⏰ **Срок:** {due_str}"
+        if task.description:
+            msg += f"\n📋 {task.description}"
+        msg += "\n\n✅ Создать задачу?"
+        return msg
