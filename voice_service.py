@@ -2,6 +2,7 @@ import io
 import torch
 import os
 from typing import Union, Optional
+import time
 from telegram import File
 
 # Импортируем GigaAM из локальной папки
@@ -32,7 +33,6 @@ class VoiceService:
     def _load_model(self):
         """Загружает модель GigaAM для распознавания речи"""
         try:
-            calendar_logger.info("Загрузка модели GigaAM...")
             self.model = gigaam.load_model(
                 "v2_ctc",  # GigaAM-V2 CTC model
                 device=self.device
@@ -56,15 +56,20 @@ class VoiceService:
         try:
             # Скачиваем файл в память
             file_bytes = await voice_file.download_as_bytearray()
-            
+
             # Конвертируем в аудио формат, который понимает модель
             audio_data = self._convert_ogg_to_wav(file_bytes)
-            
-            # Передаем тензор напрямую в модель (sample_rate уже 16000 после конвертации)
-            result = self.model.transcribe_longform(audio_data, sample_rate=16000)
 
-            # GigaAM.transcribe_longform возвращает список сегментов,
-            # каждый сегмент: {"transcription": str, "boundaries": (start, end)}
+            # Короткая речь (<=25с) — однопроходный transcribe, иначе longform
+            LONGFORM_THRESHOLD_SAMPLES = 25 * 16000
+            use_shortform = int(audio_data.numel()) <= LONGFORM_THRESHOLD_SAMPLES
+
+            if use_shortform:
+                result = self.model.transcribe(audio_data, sample_rate=16000)
+            else:
+                result = self.model.transcribe_longform(audio_data, sample_rate=16000)
+
+            # GigaAM.transcribe_longform возвращает список сегментов
             if isinstance(result, list):
                 segments = []
                 for seg in result:
@@ -83,10 +88,45 @@ class VoiceService:
             calendar_logger.info(
                 f"Голосовое сообщение транскрибировано: {transcription if len(transcription) < 256 else transcription[:253] + '...'}"
             )
+
+            # Если пустая транскрипция — пробуем fallback (shortform)
+            if not transcription and not use_shortform:
+                try:
+                    fallback = self.model.transcribe(audio_data, sample_rate=16000)
+                    if isinstance(fallback, str) and fallback.strip():
+                        return fallback.strip()
+                except Exception as fb_err:
+                    calendar_logger.log_error(fb_err, "voice_service.transcribe_voice_message.fallback")
+
+            # Если всё равно пусто — сохраняем вход для отладки
+            if not transcription:
+                try:
+                    dbg_dir = os.path.join(os.path.dirname(__file__), "debug_audio")
+                    os.makedirs(dbg_dir, exist_ok=True)
+                    ts = int(time.time())
+                    raw_path = os.path.join(dbg_dir, f"input_{ts}.ogg")
+                    wav_path = os.path.join(dbg_dir, f"waveform_{ts}.pt")
+                    with open(raw_path, "wb") as f:
+                        f.write(file_bytes)
+                    torch.save(audio_data, wav_path)
+                except Exception as save_err:
+                    calendar_logger.log_error(save_err, "voice_service.transcribe_voice_message.save_debug")
+
             return transcription if transcription else None
-            
+
         except Exception as e:
             calendar_logger.log_error(e, "voice_service.transcribe_voice_message")
+            # Пытаемся сохранить входные данные на случай ошибки
+            try:
+                if 'file_bytes' in locals():
+                    dbg_dir = os.path.join(os.path.dirname(__file__), "debug_audio")
+                    os.makedirs(dbg_dir, exist_ok=True)
+                    ts = int(time.time())
+                    raw_path = os.path.join(dbg_dir, f"error_input_{ts}.ogg")
+                    with open(raw_path, "wb") as f:
+                        f.write(file_bytes)
+            except Exception as save_err:
+                calendar_logger.log_error(save_err, "voice_service.transcribe_voice_message.save_error_input")
             return None
     
     def _convert_ogg_to_wav(self, ogg_bytes: bytearray) -> torch.Tensor:
@@ -119,6 +159,11 @@ class VoiceService:
             if sample_rate != 16000:
                 resampler = torchaudio.transforms.Resample(sample_rate, 16000)
                 waveform = resampler(waveform)
+
+            # Нормализуем значения в допустимый диапазон [-1, 1]
+            if waveform.dtype.is_floating_point:
+                clipped = waveform.clamp_(-1.0, 1.0)
+                waveform = clipped
             
             calendar_logger.info(f"Аудио конвертировано: sample_rate={sample_rate}, shape={waveform.shape}")
             return waveform

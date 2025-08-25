@@ -74,11 +74,12 @@ class CalendarLogger:
         self.logger.info(log_msg)
     
     def log_error(self, error: Exception, context: str = ""):
-        """Логирование ошибок"""
+        """Логирование ошибок с трассировкой стека"""
         timestamp = datetime.now().isoformat()
         context_str = f" | Context: {context}" if context else ""
         log_msg = f"ERROR | Type: {type(error).__name__} | Message: {str(error)}{context_str} | Time: {timestamp}"
-        self.logger.error(log_msg)
+        # Используем exception, чтобы записать traceback. Вызывать из блока except.
+        self.logger.exception(log_msg)
     
     def info(self, message: str):
         """Общее логирование информационных сообщений"""

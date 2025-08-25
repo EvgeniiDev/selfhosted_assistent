@@ -4,6 +4,7 @@ import sys
 import importlib
 from io import BytesIO
 from typing import List, Tuple, Union
+import time
 
 # Добавляем путь к silero-vad в sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -89,14 +90,48 @@ def segment_audio(
     If the HF_TOKEN environment variable is not set, the segmentation is performed using SileroVAD.
     """
 
+    # --- Предобработка аудио для VAD ---
+    def _preprocess_for_vad(wav: torch.Tensor, sr: int) -> torch.Tensor:
+        # Приводим к float32 в диапазон [-1, 1]
+        if wav.dtype.is_floating_point:
+            x = wav.to(torch.float32)
+            # Если это шкала int16 (по логике load_audio("int") может быть), нормализуем
+            if x.abs().max() > 1.5:
+                x = (x / 32768.0).clamp_(-1.0, 1.0)
+        else:
+            x = (wav.to(torch.float32) / 32768.0).clamp_(-1.0, 1.0)
+
+        # Удаление DC-смещения
+        x = x - x.mean()
+
+        # Pre-emphasis (легкий ВЧ-фильтр)
+        pre = 0.97
+        if x.numel() > 1:
+            y = x.clone()
+            y[1:] = x[1:] - pre * x[:-1]
+            x = y
+
+        # Нормализация пика до 0.99
+        peak = x.abs().max()
+        if peak > 0:
+            x = (x / peak) * 0.99
+
+        # Обратно к int16 для pydub.AudioSegment
+        x_int16 = (x * 32768.0).round().to(torch.int16)
+        return x_int16
+
+    processed = _preprocess_for_vad(wav_tensor, sample_rate)
+    processed_float = (processed.to(torch.float32) / 32768.0).clamp_(-1.0, 1.0)
+
     audio = AudioSegment(
-        wav_tensor.numpy().tobytes(),
+        processed.numpy().tobytes(),
         frame_rate=sample_rate,
-        sample_width=wav_tensor.dtype.itemsize,
+        sample_width=processed.dtype.itemsize,
         channels=1,
     )
 
     try:
+        t0 = time.perf_counter()
         audio_bytes = BytesIO()
         audio.export(audio_bytes, format="wav")
         audio_bytes.seek(0)
@@ -107,24 +142,25 @@ def segment_audio(
         pipeline_result = pipeline(
             {"uri": "filename", "audio": audio_bytes}
         ).get_timeline().support()
-
         sad_segments = list(map(lambda x: {"start": x.start, "end": x.end}, pipeline_result))
+    # минимальные логи
     except ValueError:
         logging.warning(
-            "HF_TOKEN environment variable is not set"
-            " so using local Silero VAD instead of PyAnnote pipeline"
+            "HF_TOKEN environment variable is not set so using local Silero VAD instead of PyAnnote pipeline"
         )
 
         # Process audio with Silero VAD to obtain segments with speech activity
+        t2 = time.perf_counter()
         silero_model = get_silero_vad(device)
 
         silero_mod = importlib.import_module("silero_vad")
         sad_segments = silero_mod.get_speech_timestamps(
-            wav_tensor.to(device),
+            processed_float.to(device),
             model=silero_model,
             sampling_rate=sample_rate,
             return_seconds=True,
         )
+    # минимальные логи
 
     segments: List[torch.Tensor] = []
     curr_duration = 0.0
@@ -160,4 +196,6 @@ def segment_audio(
         segments.append(audiosegment_to_tensor(audio[start_ms:end_ms]))
         boundaries.append((curr_start, curr_end))
 
+    # минимальные логи: можно убрать вовсе, оставляем как ориентир
+    logging.info("VAD(chunks) | chunks=%d", len(segments))
     return segments, boundaries
